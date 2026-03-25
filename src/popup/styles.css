@@ -221,7 +221,6 @@ body {
   color: #f0f6fc;
   line-height: 1.35;
   min-width: 60px;
-  max-height: 100px;
   overflow-y: auto;
   overflow-x: hidden;
   white-space: pre-wrap;
