@@ -55,7 +55,31 @@ interface SearchFriendsMessage {
   count?: number;
 }
 
-type ExtensionMessage = CreateNoteMessage | GetTokensMessage | GetCurrentNoteStatusMessage | DeleteNoteMessage | SearchMusicMessage | SearchFriendsMessage | PlayMusicMessage;
+interface StartAutoPostMessage {
+  type: 'START_AUTO_POST';
+  config: {
+    mode: 'TIME' | 'RANDOM_LINE';
+    interval: number;
+    lines: string;
+    duration: number;
+    audienceSetting: 'DEFAULT' | 'FRIENDS' | 'PUBLIC' | 'CONTACTS' | 'CUSTOM';
+    selectedFriendIds?: string[];
+    selectedMusic?: {
+      id: string;
+      songId?: string;
+      audioClusterId?: string;
+      title: string;
+      artist: string;
+    } | null;
+    musicTrimStartMs?: number;
+  };
+}
+
+interface StopAutoPostMessage {
+  type: 'STOP_AUTO_POST';
+}
+
+type ExtensionMessage = CreateNoteMessage | GetTokensMessage | GetCurrentNoteStatusMessage | DeleteNoteMessage | SearchMusicMessage | SearchFriendsMessage | PlayMusicMessage | StartAutoPostMessage | StopAutoPostMessage;
 
 // Priority: 1) active Facebook tab in current window, 2) any Facebook tab, 3) active tab
 function findBestTab (callback: (tab: chrome.tabs.Tab | null) => void): void {
@@ -412,6 +436,75 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
     });
 
     return true;
+  }
+
+  if (message.type === 'START_AUTO_POST') {
+    chrome.storage.local.set({ autoPostConfig: message.config }, () => {
+      chrome.alarms.create('auto_post_alarm', { periodInMinutes: message.config.interval });
+      // Trigger first post immediately to act as starting feedback
+      triggerAutoPost();
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
+  if (message.type === 'STOP_AUTO_POST') {
+    chrome.alarms.clear('auto_post_alarm', () => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+});
+
+function triggerAutoPost() {
+  chrome.storage.local.get(['autoPostConfig'], (res) => {
+    const config = res.autoPostConfig;
+    if (!config) return;
+
+    let contentToPost = '';
+    if (config.mode === 'TIME') {
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2, '0');
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const yyyy = now.getFullYear();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const min = String(now.getMinutes()).padStart(2, '0');
+      contentToPost = `${hh}:${min} ${dd}/${mm}/${yyyy}`;
+    } else if (config.mode === 'RANDOM_LINE') {
+      const lines = (config.lines || '').split('\n').map((l: string) => l.trim()).filter(Boolean);
+      if (lines.length > 0) {
+        contentToPost = lines[Math.floor(Math.random() * lines.length)];
+      } else {
+        contentToPost = 'No random lines configured';
+      }
+    }
+
+    findBestTab((tab) => {
+      if (!tab?.id || !tab.url?.includes('facebook.com')) return;
+
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: getPageInfo
+      }, (results) => {
+        if (chrome.runtime.lastError || !results?.[0]) return;
+        
+        const { cookie, html } = results[0].result as { cookie: string; html: string };
+        const tokens = extractTokens(cookie, html);
+        if (!tokens) return;
+
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id as number },
+          func: createNoteFromPage,
+          args: [tokens, contentToPost, config.duration, config.audienceSetting, config.selectedFriendIds || [], config.selectedMusic || null, config.musicTrimStartMs || 0]
+        });
+      });
+    });
+  });
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'auto_post_alarm') {
+    triggerAutoPost();
   }
 });
 

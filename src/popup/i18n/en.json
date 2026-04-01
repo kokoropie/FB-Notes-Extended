@@ -55,5 +55,17 @@
 
   "status.expiry.unknown": "Expiration time unknown",
   "status.expiry.with_days": "Expires: {date} ({days}d {hours}h left)",
-  "status.expiry.with_hours": "Expires: {date} ({hours}h left)"
+  "status.expiry.with_hours": "Expires: {date} ({hours}h left)",
+
+  "auto.tab.manual": "Manual Post",
+  "auto.tab.auto": "Auto Post",
+  "auto.mode.time": "Post Time",
+  "auto.mode.random": "Post Random Line",
+  "auto.interval.label": "Interval (minutes):",
+  "auto.lines.label": "Random lines (one per line):",
+  "auto.lines.placeholder": "Enter phrases here...\nEach line is a separate post.",
+  "auto.start": "Start Auto Post",
+  "auto.stop": "Stop Auto Post",
+  "auto.error.empty_lines": "Cannot start random mode with empty lines",
+  "auto.warning.active": "Auto Post is running. Manual composition is disabled."
 }
