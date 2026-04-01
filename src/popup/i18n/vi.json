@@ -55,5 +55,17 @@
 
   "status.expiry.unknown": "Không rõ thời gian hết hạn",
   "status.expiry.with_days": "Hết hạn: {date} (còn {days} ngày {hours} giờ)",
-  "status.expiry.with_hours": "Hết hạn: {date} (còn {hours} giờ)"
+  "status.expiry.with_hours": "Hết hạn: {date} (còn {hours} giờ)",
+
+  "auto.tab.manual": "Thủ công",
+  "auto.tab.auto": "Tự động",
+  "auto.mode.time": "Đăng Thời Gian",
+  "auto.mode.random": "Đăng Text Ngẫu Nhiên",
+  "auto.interval.label": "Khoảng cách (phút):",
+  "auto.lines.label": "Các dòng ngẫu nhiên (mỗi câu một dòng):",
+  "auto.lines.placeholder": "Nhập các câu ở đây...\nMỗi dòng là một bài đăng riêng biệt.",
+  "auto.start": "Bắt đầu tự động post",
+  "auto.stop": "Dừng tự động post",
+  "auto.error.empty_lines": "Không thể bắt đầu với chế độ text ngẫu nhiên mà chưa nhập nội dung",
+  "auto.warning.active": "Tự động post đang chạy. Không thể soạn thủ công lúc này."
 }

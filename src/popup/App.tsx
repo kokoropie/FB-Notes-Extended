@@ -42,6 +42,12 @@ type PersistedState = {
   selectedFriendIds: string[];
   selectedFriends: FriendItem[];
   selectedMusic: MusicItem | null;
+
+  activeTab: 'manual' | 'auto';
+  autoMode: 'TIME' | 'RANDOM_LINE';
+  autoInterval: number;
+  autoLines: string;
+  isAutoRunning: boolean;
 };
 
 type CurrentNoteStatus = {
@@ -91,6 +97,12 @@ const App: React.FC = () => {
   const [duration, setDuration] = useState(86400);
   const [customDurationMinutes, setCustomDurationMinutes] = useState('');
   const [audienceSetting, setAudienceSetting] = useState<AudienceSetting>('FRIENDS');
+
+  const [activeTab, setActiveTab] = useState<'manual' | 'auto'>('manual');
+  const [autoMode, setAutoMode] = useState<'TIME' | 'RANDOM_LINE'>('TIME');
+  const [autoInterval, setAutoInterval] = useState<number>(60);
+  const [autoLines, setAutoLines] = useState<string>('');
+  const [isAutoRunning, setIsAutoRunning] = useState<boolean>(false);
 
   const [friendQuery, setFriendQuery] = useState('');
   const [friendItems, setFriendItems] = useState<FriendItem[]>([]);
@@ -186,6 +198,11 @@ const App: React.FC = () => {
         const hasMusicCluster = Boolean(saved.selectedMusic.songId || saved.selectedMusic.audioClusterId);
         setSelectedMusic(hasMusicCluster ? saved.selectedMusic : null);
       }
+      if (saved.activeTab) setActiveTab(saved.activeTab);
+      if (saved.autoMode) setAutoMode(saved.autoMode);
+      if (typeof saved.autoInterval === 'number') setAutoInterval(saved.autoInterval);
+      if (typeof saved.autoLines === 'string') setAutoLines(saved.autoLines);
+      if (typeof saved.isAutoRunning === 'boolean') setIsAutoRunning(saved.isAutoRunning);
     });
   }, []);
 
@@ -197,9 +214,14 @@ const App: React.FC = () => {
       selectedFriendIds,
       selectedFriends,
       selectedMusic,
+      activeTab,
+      autoMode,
+      autoInterval,
+      autoLines,
+      isAutoRunning,
     };
     chrome.storage.local.set({ [POPUP_STATE_KEY]: state });
-  }, [audienceSetting, duration, customDurationMinutes, selectedFriendIds, selectedFriends, selectedMusic]);
+  }, [audienceSetting, duration, customDurationMinutes, selectedFriendIds, selectedFriends, selectedMusic, activeTab, autoMode, autoInterval, autoLines, isAutoRunning]);
 
   useEffect(() => {
     chrome.runtime.sendMessage({ type: 'GET_TOKENS' }, (response) => {
@@ -639,6 +661,41 @@ const App: React.FC = () => {
     });
   }, [tokens, noteText, duration, audienceSetting, selectedFriendIds, selectedMusic, musicTrimStartMs, isSubmitting, t]);
 
+  const handleToggleAutoPost = useCallback(() => {
+    if (isAutoRunning) {
+      setIsAutoRunning(false);
+      chrome.runtime.sendMessage({ type: 'STOP_AUTO_POST' }, () => {
+        // Handle response conditionally if needed
+      });
+    } else {
+      if (autoMode === 'RANDOM_LINE' && !autoLines.trim()) {
+        setResult({ type: 'error', message: t('auto.error.empty_lines') });
+        return;
+      }
+      setIsAutoRunning(true);
+      chrome.runtime.sendMessage({
+        type: 'START_AUTO_POST',
+        config: {
+          mode: autoMode,
+          interval: autoInterval,
+          lines: autoLines,
+          duration,
+          audienceSetting,
+          selectedFriendIds,
+          selectedMusic,
+          musicTrimStartMs
+        }
+      }, (res) => {
+        if (res && !res.success) {
+          setIsAutoRunning(false);
+          setResult({ type: 'error', message: res.error || 'Failed to start Auto Post' });
+        } else {
+          setResult({ type: 'success', message: 'Auto Post started successfully' });
+        }
+      });
+    }
+  }, [isAutoRunning, autoMode, autoInterval, autoLines, duration, audienceSetting, selectedFriendIds, selectedMusic, musicTrimStartMs, t]);
+
   const charPercentage = (encodedLength / MAX_DESCRIPTION_LENGTH) * 100;
   const charStatus = charPercentage < 50 ? 'safe' : charPercentage < 80 ? 'warning' : 'danger';
   const selectedFriendLookup = useMemo(
@@ -749,6 +806,21 @@ const App: React.FC = () => {
 
   return (
     <div className="container">
+      <div className="main-tabs-container">
+        <button 
+          className={`main-tab-btn ${activeTab === 'manual' ? 'active' : ''}`} 
+          onClick={() => !isAutoRunning && setActiveTab('manual')}
+          disabled={isAutoRunning}
+        >
+          {t('auto.tab.manual')}
+        </button>
+        <button 
+          className={`main-tab-btn ${activeTab === 'auto' ? 'active' : ''}`} 
+          onClick={() => setActiveTab('auto')}
+        >
+          {t('auto.tab.auto')}
+        </button>
+      </div>
 
       <div className="note-preview-stage">
         {canDeleteNote && (
@@ -802,123 +874,179 @@ const App: React.FC = () => {
           <span className="section-title">{t('composer.title')}</span>
         </div>
         <div className="section-content">
-          <div className="note-composer">
-            <div className="composer-scroll">
-              <textarea
-                className="note-textarea"
-                placeholder={t('composer.placeholder')}
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                disabled={tokenStatus !== 'ready'}
-              />
-              <div className="char-counter">
-                <div className="char-bar-container">
-                  <div 
-                    className={`char-bar ${charStatus}`}
-                    style={{ width: `${Math.min(charPercentage, 100)}%` }}
+          {activeTab === 'auto' ? (
+            <div className="note-composer auto-post-config">
+              <div className="composer-scroll">
+                <div className="auto-config-row">
+                  <label className="radio-label">
+                    <input type="radio" checked={autoMode === 'TIME'} onChange={() => setAutoMode('TIME')} disabled={isAutoRunning} />
+                    <span>{t('auto.mode.time')}</span>
+                  </label>
+                  <label className="radio-label">
+                    <input type="radio" checked={autoMode === 'RANDOM_LINE'} onChange={() => setAutoMode('RANDOM_LINE')} disabled={isAutoRunning} />
+                    <span>{t('auto.mode.random')}</span>
+                  </label>
+                </div>
+                <div className="auto-config-row">
+                  <label className="input-label">{t('auto.interval.label')}</label>
+                  <input 
+                    type="number" 
+                    className="interval-input" 
+                    min={1} 
+                    value={autoInterval} 
+                    onChange={(e) => setAutoInterval(Math.max(1, parseInt(e.target.value) || 1))} 
+                    disabled={isAutoRunning} 
                   />
                 </div>
-                <span className="char-text">{encodedLength} / {MAX_DESCRIPTION_LENGTH}</span>
-              </div>
-              <div className="char-counter-footer">
-                <div className="action-buttons-row">
-                  <div className="action-left" data-lang-menu>
-                    <button
-                      className="icon-btn"
-                      onClick={() => chrome.tabs.create({ url: GITHUB_URL })}
-                      disabled={tokenStatus !== 'ready'}
-                      title={t('action.github')}
-                      type="button"
-                    >
-                      <Github size={14} />
-                    </button>
-                    <div className="lang-menu-wrapper" data-lang-menu>
-                      <button
-                        className={`icon-btn ${showLanguageMenu ? 'has-value' : ''}`}
-                        onClick={() => setShowLanguageMenu((v) => !v)}
-                        title={t('action.language')}
-                        type="button"
-                      >
-                        <Languages size={14} />
-                        <span className="icon-badge">{language.toUpperCase()}</span>
-                      </button>
-                      {showLanguageMenu && (
-                        <div className="lang-menu" role="menu">
-                          <button
-                            className={`lang-option ${language === 'vi' ? 'active' : ''}`}
-                            onClick={() => {
-                              setLanguage('vi');
-                              setShowLanguageMenu(false);
-                            }}
-                            type="button"
-                          >
-                            {t('lang.vi')}
-                          </button>
-                          <button
-                            className={`lang-option ${language === 'en' ? 'active' : ''}`}
-                            onClick={() => {
-                              setLanguage('en');
-                              setShowLanguageMenu(false);
-                            }}
-                            type="button"
-                          >
-                            {t('lang.en')}
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                {autoMode === 'RANDOM_LINE' && (
+                  <div className="auto-config-row vertical">
+                    <label className="input-label">{t('auto.lines.label')}</label>
+                    <textarea 
+                      className="note-textarea auto-lines-textarea" 
+                      placeholder={t('auto.lines.placeholder')}
+                      value={autoLines}
+                      onChange={(e) => setAutoLines(e.target.value)}
+                      disabled={isAutoRunning}
+                    />
                   </div>
-                  <button
-                    className={`icon-btn ${audienceSetting !== 'DEFAULT' ? 'has-value' : ''}`}
-                    onClick={() => setActiveModal('audience')}
-                    disabled={tokenStatus !== 'ready'}
-                    title="Audience"
-                  >
-                    <Users size={14} />
-                    {audienceSetting !== 'DEFAULT' && (
-                      <span className="icon-badge">
-                        {audienceSetting === 'CUSTOM' ? `${selectedFriendIds.length}` : audienceSetting.charAt(0)}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    className={`icon-btn ${duration !== 86400 ? 'has-value' : ''}`}
-                    onClick={() => setActiveModal('duration')}
-                    disabled={tokenStatus !== 'ready'}
-                    title="Duration"
-                  >
-                    <Clock3 size={14} />
-                    {duration !== 86400 && (
-                      <span className="icon-badge">{formatDurationFromSeconds(duration)}</span>
-                    )}
-                  </button>
-                  <button
-                    className={`icon-btn ${selectedMusic ? 'has-value' : ''}`}
-                    onClick={() => setActiveModal('music')}
-                    disabled={tokenStatus !== 'ready'}
-                    title="Music"
-                  >
-                    <Music size={14} />
-                    {selectedMusic && <span className="icon-badge">♪</span>}
-                  </button>
-                  <button
-                    className={`action-btn ${result?.type === 'success' ? 'success' : ''}`}
-                    onClick={handleSubmit}
-                    disabled={tokenStatus !== 'ready' || isSubmitting}
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <Loader2 size={12} className="spinner" />
-                        <span>{t('share.submitting')}</span>
-                      </>
-                    ) : (
-                      <span>{t('share.button')}</span>
-                    )}
-                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="note-composer">
+              <div className="composer-scroll">
+                <textarea
+                  className="note-textarea"
+                  placeholder={t('composer.placeholder')}
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  disabled={tokenStatus !== 'ready'}
+                />
+                <div className="char-counter">
+                  <div className="char-bar-container">
+                    <div 
+                      className={`char-bar ${charStatus}`}
+                      style={{ width: `${Math.min(charPercentage, 100)}%` }}
+                    />
+                  </div>
+                  <span className="char-text">{encodedLength} / {MAX_DESCRIPTION_LENGTH}</span>
                 </div>
               </div>
             </div>
+          )}
 
+          <div className="char-counter-footer" style={activeTab === 'auto' ? { borderTop: 'none', paddingTop: 0 } : {}}>
+            <div className="action-buttons-row">
+              <div className="action-left" data-lang-menu>
+                <button
+                  className="icon-btn"
+                  onClick={() => chrome.tabs.create({ url: GITHUB_URL })}
+                  disabled={tokenStatus !== 'ready'}
+                  title={t('action.github')}
+                  type="button"
+                >
+                  <Github size={14} />
+                </button>
+                <div className="lang-menu-wrapper" data-lang-menu>
+                  <button
+                    className={`icon-btn ${showLanguageMenu ? 'has-value' : ''}`}
+                    onClick={() => setShowLanguageMenu((v) => !v)}
+                    title={t('action.language')}
+                    type="button"
+                  >
+                    <Languages size={14} />
+                    <span className="icon-badge">{language.toUpperCase()}</span>
+                  </button>
+                  {showLanguageMenu && (
+                    <div className="lang-menu" role="menu">
+                      <button
+                        className={`lang-option ${language === 'vi' ? 'active' : ''}`}
+                        onClick={() => {
+                          setLanguage('vi');
+                          setShowLanguageMenu(false);
+                        }}
+                        type="button"
+                      >
+                        {t('lang.vi')}
+                      </button>
+                      <button
+                        className={`lang-option ${language === 'en' ? 'active' : ''}`}
+                        onClick={() => {
+                          setLanguage('en');
+                          setShowLanguageMenu(false);
+                        }}
+                        type="button"
+                      >
+                        {t('lang.en')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <button
+                className={`icon-btn ${audienceSetting !== 'DEFAULT' ? 'has-value' : ''}`}
+                onClick={() => setActiveModal('audience')}
+                disabled={tokenStatus !== 'ready'}
+                title="Audience"
+              >
+                <Users size={14} />
+                {audienceSetting !== 'DEFAULT' && (
+                  <span className="icon-badge">
+                    {audienceSetting === 'CUSTOM' ? `${selectedFriendIds.length}` : audienceSetting.charAt(0)}
+                  </span>
+                )}
+              </button>
+              <button
+                className={`icon-btn ${duration !== 86400 ? 'has-value' : ''}`}
+                onClick={() => setActiveModal('duration')}
+                disabled={tokenStatus !== 'ready'}
+                title="Duration"
+              >
+                <Clock3 size={14} />
+                {duration !== 86400 && (
+                  <span className="icon-badge">{formatDurationFromSeconds(duration)}</span>
+                )}
+              </button>
+              <button
+                className={`icon-btn ${selectedMusic ? 'has-value' : ''}`}
+                onClick={() => setActiveModal('music')}
+                disabled={tokenStatus !== 'ready'}
+                title="Music"
+              >
+                <Music size={14} />
+                {selectedMusic && <span className="icon-badge">♪</span>}
+              </button>
+              
+              {activeTab === 'manual' ? (
+                <button
+                  className={`action-btn ${result?.type === 'success' ? 'success' : ''}`}
+                  onClick={handleSubmit}
+                  disabled={tokenStatus !== 'ready' || isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 size={12} className="spinner" />
+                      <span>{t('share.submitting')}</span>
+                    </>
+                  ) : (
+                    <span>{t('share.button')}</span>
+                  )}
+                </button>
+              ) : (
+                <button
+                  className={`action-btn ${isAutoRunning ? 'danger' : ''}`}
+                  onClick={handleToggleAutoPost}
+                  disabled={tokenStatus !== 'ready'}
+                >
+                  {isAutoRunning ? (
+                    <span>{t('auto.stop')}</span>
+                  ) : (
+                    <span>{t('auto.start')}</span>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

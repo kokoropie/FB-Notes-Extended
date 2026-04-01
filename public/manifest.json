@@ -5,6 +5,7 @@
   "description": "Viết ghi chú Facebook dài không giới hạn, set thời hạn tùy chỉnh. Write unlimited-length Facebook notes with custom durations.",
   "permissions": [
     "activeTab",
+    "alarms",
     "scripting",
     "storage",
     "webNavigation"
